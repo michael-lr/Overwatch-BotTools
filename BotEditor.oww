@@ -1,0 +1,702 @@
+variables
+{
+	global:
+		0: flyingSpeed
+		1: boostModifier
+		2: toggleTime
+
+	player:
+		0: isButtonsActive
+		1: flyPosition
+		2: activateTimer
+		3: isFlying
+		5: progressBarVisible
+		6: isHoldingToggle
+		7: flightHudVisible
+		8: selectedBot
+		9: placeableHero
+		10: heroIndex
+		12: deathPosition
+		13: selectedTeam
+		14: index
+		15: heroeMenuText
+		16: HeroTextVisibility
+}
+
+subroutines
+{
+	0: ToggleButtons
+}
+
+rule("GlobalSettings")
+{
+	event
+	{
+		Ongoing - Global;
+	}
+
+	actions
+	{
+		Global.flyingSpeed = Workshop Setting Real(Custom String("Editor Settings"), Custom String("Flight Speed"), 30, 10, 100, 0);
+		Global.boostModifier = Workshop Setting Real(Custom String("Editor Settings"), Custom String("Boost Modifier"), 1.500, 1, 5, 1);
+		Global.toggleTime = Workshop Setting Real(Custom String("Editor Settings"), Custom String("Toggle Time"), 0.500, 0, 3, 3);
+		Global.H = All Heroes;
+	}
+}
+
+rule("PlayerSetup")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	actions
+	{
+		Event Player.isButtonsActive = True;
+		Event Player.flyPosition = Vector(0, 0, 0);
+		Event Player.isFlying = True;
+		Event Player.heroIndex = 0;
+		Event Player.placeableHero = All Heroes[Event Player.heroIndex];
+		Event Player.flightHudVisible = Event Player;
+		Event Player.progressBarVisible = Null;
+		Create HUD Text(Event Player, Null, Custom String("Controls"), Custom String("Swap Mode - {0}", Input Binding String(Button(
+			Interact))), Right, 0, Color(Green), Color(Green), Color(White), Visible To and String, Default Visibility);
+		Create Effect(Event Player.flightHudVisible, Ring, Color(Sky Blue), Update Every Frame(Ray Cast Hit Position(
+			Event Player.flyPosition, Facing Direction Of(Event Player) * 1000, All Players(All Teams), Event Player, True)), 1.200,
+			Visible To Position Radius and Color);
+		Create Progress Bar HUD Text(Event Player.progressBarVisible, Event Player.activateTimer, Custom String(""), Top, 0, Color(White),
+			Color(White), Visible To Values and Color, Default Visibility);
+		Create HUD Text(Event Player.flightHudVisible, Custom String("Editor Mode"), Null, Null, Left, 0, Color(Green), Color(White),
+			Color(White), Visible To and String, Default Visibility);
+		Create HUD Text(Event Player.flightHudVisible, Null, Null, Custom String("Select Hero - {0}", Input Binding String(Button(
+			Primary Fire))), Right, 1, Color(Green), Color(White), Color(White), Visible To and String, Default Visibility);
+		Create HUD Text(Event Player.flightHudVisible, Null, Null, Custom String("Previous - {0}", Input Binding String(Button(Ultimate))),
+			Right, 2, Color(Green), Color(White), Color(White), Visible To and String, Default Visibility);
+		Disable Game Mode HUD(Event Player);
+		Disable Game Mode In-World UI(Event Player);
+		Event Player.selectedBot = Null;
+		Event Player.selectedTeam = Team 1;
+		Create Effect(Event Player.flightHudVisible, Ring, Color(Green), Position Of(Event Player.selectedBot), 1.200,
+			Visible To Position and Radius);
+		Create Effect(Event Player.flightHudVisible, Light Shaft, Color(Green), Position Of(Event Player.selectedBot), 1.200,
+			Visible To Position and Radius);
+	}
+}
+
+rule("ToggleFlight")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Button Held(Event Player, Button(Interact)) == True;
+	}
+
+	actions
+	{
+		Event Player.activateTimer = 0;
+		Event Player.progressBarVisible = Event Player;
+		Event Player.isHoldingToggle = True;
+		Chase Player Variable Over Time(Event Player, activateTimer, 100, Global.toggleTime, Destination and Duration);
+		Wait(Global.toggleTime, Abort When False);
+		Event Player.isHoldingToggle = False;
+		If(Event Player.isFlying == False);
+			Event Player.isFlying = True;
+			Event Player.flightHudVisible = Event Player;
+		Else If(Event Player.isFlying == True);
+			Event Player.isFlying = False;
+			Event Player.flightHudVisible = Null;
+		End;
+		Event Player.progressBarVisible = Null;
+		Event Player.activateTimer = 0;
+	}
+}
+
+rule("InstantRespawnOnDeath (Players)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dead(Event Player) == True;
+		Is Dummy Bot(Event Player) == False;
+	}
+
+	actions
+	{
+		Respawn(Event Player);
+	}
+}
+
+rule("InstantRespawnOnDeath (Bots)")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Dead(Event Player) == True;
+		Is Dummy Bot(Event Player) == True;
+	}
+
+	actions
+	{
+		Event Player.deathPosition = Position Of(Event Player);
+		Wait(1, Ignore Condition);
+		Respawn(Event Player);
+		Teleport(Event Player, Nearest Walkable Position(Event Player.deathPosition));
+	}
+}
+
+rule("OnAbort")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Button Held(Event Player, Button(Interact)) == False;
+		Event Player.isHoldingToggle == True;
+	}
+
+	actions
+	{
+		Event Player.isHoldingToggle = False;
+		Stop Chasing Player Variable(Event Player, activateTimer);
+		Event Player.activateTimer = 0;
+		Event Player.progressBarVisible = Null;
+	}
+}
+
+rule("FlightOn")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Has Spawned(Event Player) == True;
+		Is Alive(Event Player) == True;
+		Event Player.isFlying == True;
+		Is Dummy Bot(Event Player) == False;
+	}
+
+	actions
+	{
+		Disable Hero HUD(Event Player);
+		Set Invisible(Event Player, All);
+		Set Status(Event Player, Null, Invincible, 9999);
+		disabled Disable Movement Collision With Environment(Event Player, False);
+		Disable Movement Collision With Players(Event Player);
+		Set Gravity(Event Player, 0);
+		Call Subroutine(ToggleButtons);
+		Set Move Speed(Event Player, 0);
+		Event Player.flyPosition = Eye Position(Event Player);
+		"Start Flight Camera"
+		Start Camera(Event Player, Update Every Frame(Event Player.flyPosition), Update Every Frame(
+			Event Player.flyPosition + Facing Direction Of(Event Player)), 0);
+		"Get player input for flight control"
+		Chase Player Variable At Rate(Event Player, flyPosition, Event Player.flyPosition + Facing Direction Of(Event Player)
+			* 1000 * Z Component Of(Throttle Of(Event Player)) + (World Vector Of(Left, Event Player, Rotation) * X Component Of(
+			Throttle Of(Event Player)) + Vector(0, Is Button Held(Event Player, Button(Jump)) * 1 + Is Button Held(Event Player, Button(
+			Crouch)) * -1, 0)) * 1000, Global.flyingSpeed * (Is Button Held(Event Player, Button(Ability 1)) == False)
+			+ Global.boostModifier * Global.flyingSpeed * (Is Button Held(Event Player, Button(Ability 1)) == True), Destination and Rate);
+		"Get player input for flight control"
+		disabled Chase Player Variable At Rate(Event Player, flyPosition, Update Every Frame(Event Player.flyPosition + Facing Direction Of(
+			Event Player) * 1000 * Z Component Of(Throttle Of(Event Player)) + (World Vector Of(Left, Event Player, Rotation)
+			* X Component Of(Throttle Of(Event Player)) + Vector(0, Is Button Held(Event Player, Button(Jump)) * 1 + Is Button Held(
+			Event Player, Button(Crouch)) * -1, 0)) * 1000), Update Every Frame(Global.flyingSpeed * (Is Button Held(Event Player, Button(
+			Ability 1)) == False) + Global.boostModifier * Global.flyingSpeed * (Is Button Held(Event Player, Button(Ability 1)) == True)),
+			Destination and Rate);
+		"Move player's character out of the way"
+		Teleport(Event Player, Vector(0, 1000, 0));
+	}
+}
+
+rule("FlightOff")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Event Player.isFlying == False;
+		Is Alive(Event Player) == True;
+	}
+
+	actions
+	{
+		Teleport(Event Player, Nearest Walkable Position(Event Player.flyPosition));
+		Stop Camera(Event Player);
+		Call Subroutine(ToggleButtons);
+		Clear Status(Event Player, Invincible);
+		Set Invisible(Event Player, None);
+		Set Gravity(Event Player, 100);
+		Set Move Speed(Event Player, 100);
+		Enable Hero HUD(Event Player);
+	}
+}
+
+disabled rule("FlyingLoop")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Game In Progress == True;
+	}
+
+	actions
+	{
+		Wait(0.016, Ignore Condition);
+		Event Player.flyPosition = Is Button Held(Event Player, Button(Ability 1)) ? Event Player.flyPosition + Vector(0, 1, 0)
+			: Event Player.flyPosition + Vector(0, 0, 0);
+		Log To Inspector(Event Player.flyPosition + Facing Direction Of(Event Player));
+		Loop;
+	}
+}
+
+rule("SUB_ToggleButtons")
+{
+	event
+	{
+		Subroutine;
+		ToggleButtons;
+	}
+
+	actions
+	{
+		If(Event Player.isButtonsActive == True);
+			"Disable All Buttons"
+			Disallow Button(Event Player, Button(Reload));
+			Disallow Button(Event Player, Button(Primary Fire));
+			Disallow Button(Event Player, Button(Secondary Fire));
+			Disallow Button(Event Player, Button(Ability 1));
+			Disallow Button(Event Player, Button(Ability 2));
+			Disallow Button(Event Player, Button(Ultimate));
+			Disallow Button(Event Player, Button(Interact));
+			Disallow Button(Event Player, Button(Jump));
+			Disallow Button(Event Player, Button(Crouch));
+			Disallow Button(Event Player, Button(Melee));
+			"Toggle Variable"
+			Event Player.isButtonsActive = False;
+		Else If(Event Player.isButtonsActive == False);
+			"Allow All Buttons"
+			Allow Button(Event Player, Button(Primary Fire));
+			Allow Button(Event Player, Button(Secondary Fire));
+			Allow Button(Event Player, Button(Ability 1));
+			Allow Button(Event Player, Button(Ability 2));
+			Allow Button(Event Player, Button(Ultimate));
+			Allow Button(Event Player, Button(Interact));
+			Allow Button(Event Player, Button(Jump));
+			Allow Button(Event Player, Button(Crouch));
+			Allow Button(Event Player, Button(Reload));
+			Allow Button(Event Player, Button(Melee));
+			"Toggle Variable"
+			Event Player.isButtonsActive = True;
+	}
+}
+
+rule("Add Dummy Bot")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Button Held(Event Player, Button(Primary Fire)) == True;
+		Event Player.isFlying == True;
+		Count Of(All Players(All Teams)) < 12;
+		Is Button Held(Event Player, Button(Ability 1)) != True;
+	}
+
+	actions
+	{
+		Create Dummy Bot(All Heroes[Event Player.heroIndex], Event Player.selectedTeam, -1, Ray Cast Hit Position(Event Player.flyPosition,
+			Facing Direction Of(Event Player) * 1000, All Players(All Teams), Event Player, True), Facing Direction Of(Event Player));
+		Play Effect(All Players(All Teams), Good Explosion, Color(Green), Ray Cast Hit Position(Event Player.flyPosition,
+			Facing Direction Of(Event Player) * 1000, All Players(All Teams), Event Player, True), 2);
+		Play Effect(Event Player, Buff Explosion Sound, Color(White), Event Player, 5);
+		Event Player.selectedBot = Players In Slot(Number Of Players(Event Player.selectedTeam) - 1, Event Player.selectedTeam);
+		Stop Forcing Player Outlines(All Players(All Teams), Event Player);
+		Start Forcing Player Outlines(Event Player.selectedBot, Event Player.flightHudVisible, True, Color(Green), Always);
+	}
+}
+
+rule("Selected Bot Animation")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+}
+
+rule("Move Dummy Bot")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Is Button Held(Event Player, Button(Primary Fire)) == True;
+		Event Player.isFlying == True;
+		Is Button Held(Event Player, Button(Ability 1)) == True;
+	}
+
+	actions
+	{
+		Play Effect(All Players(All Teams), Ring Explosion, Color(Green), Ray Cast Hit Position(Event Player.flyPosition,
+			Facing Direction Of(Event Player) * 1000, All Players(All Teams), Event Player, True), 2);
+		Play Effect(Event Player, Buff Impact Sound, Color(White), Event Player, 5);
+		Teleport(Event Player.selectedBot, Ray Cast Hit Position(Event Player.flyPosition, Facing Direction Of(Event Player) * 1000,
+			All Players(All Teams), Event Player, True));
+	}
+}
+
+rule("Hero Menu")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	actions
+	{
+		For Player Variable(Event Player, index, 0, Count Of(All Heroes) - 1, 1);
+			Event Player.HeroTextVisibility = Append To Array(Event Player.HeroTextVisibility, Null);
+			Event Player.Z = Append To Array(Event Player.Z, 0);
+		End;
+		Event Player.heroeMenuText = Empty Array;
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Reaper))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Reaper)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Reaper)), Hero(Reaper)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Reaper)), Hero(Reaper)), Left, 3 + Index Of Array Value(All Heroes, Hero(Reaper)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Reaper))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Tracer))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Tracer)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Tracer)), Hero(Tracer)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Tracer)), Hero(Tracer)), Left, 3 + Index Of Array Value(All Heroes, Hero(Tracer)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Tracer))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Mercy))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Mercy)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Mercy)), Hero(Mercy)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Mercy)), Hero(Mercy)), Left, 3 + Index Of Array Value(All Heroes, Hero(Mercy)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Mercy))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Hanzo))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Hanzo)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Hanzo)), Hero(Hanzo)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Hanzo)), Hero(Hanzo)), Left, 3 + Index Of Array Value(All Heroes, Hero(Hanzo)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Hanzo))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Torbjörn))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Torbjörn)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Torbjörn)), Hero(Torbjörn)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Torbjörn)), Hero(Torbjörn)), Left, 3 + Index Of Array Value(All Heroes, Hero(Torbjörn)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Torbjörn))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Reinhardt))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Reinhardt)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Reinhardt)), Hero(Reinhardt)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Reinhardt)), Hero(Reinhardt)), Left, 3 + Index Of Array Value(All Heroes, Hero(Reinhardt)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Reinhardt))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Pharah))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Pharah)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Pharah)), Hero(Pharah)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Pharah)), Hero(Pharah)), Left, 3 + Index Of Array Value(All Heroes, Hero(Pharah)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Pharah))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Winston))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Winston)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Winston)), Hero(Winston)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Winston)), Hero(Winston)), Left, 3 + Index Of Array Value(All Heroes, Hero(Winston)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Winston))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Widowmaker))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Widowmaker)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Widowmaker)), Hero(Widowmaker)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Widowmaker)), Hero(Widowmaker)), Left, 3 + Index Of Array Value(All Heroes, Hero(Widowmaker)), Color(
+			White), Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Widowmaker))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Bastion))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Bastion)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Bastion)), Hero(Bastion)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Bastion)), Hero(Bastion)), Left, 3 + Index Of Array Value(All Heroes, Hero(Bastion)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Bastion))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Symmetra))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Symmetra)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Symmetra)), Hero(Symmetra)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Symmetra)), Hero(Symmetra)), Left, 3 + Index Of Array Value(All Heroes, Hero(Symmetra)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Symmetra))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Zenyatta))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Zenyatta)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Zenyatta)), Hero(Zenyatta)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Zenyatta)), Hero(Zenyatta)), Left, 3 + Index Of Array Value(All Heroes, Hero(Zenyatta)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Zenyatta))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Genji))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Genji)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Genji)), Hero(Genji)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Genji)), Hero(Genji)), Left, 3 + Index Of Array Value(All Heroes, Hero(Genji)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Genji))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Roadhog))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Roadhog)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Roadhog)), Hero(Roadhog)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Roadhog)), Hero(Roadhog)), Left, 3 + Index Of Array Value(All Heroes, Hero(Roadhog)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Roadhog))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(McCree))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(McCree)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(McCree)), Hero(McCree)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(McCree)), Hero(McCree)), Left, 3 + Index Of Array Value(All Heroes, Hero(McCree)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(McCree))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Junkrat))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Junkrat)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Junkrat)), Hero(Junkrat)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Junkrat)), Hero(Junkrat)), Left, 3 + Index Of Array Value(All Heroes, Hero(Junkrat)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Junkrat))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Zarya))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Zarya)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Zarya)), Hero(Zarya)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Zarya)), Hero(Zarya)), Left, 3 + Index Of Array Value(All Heroes, Hero(Zarya)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Zarya))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Soldier: 76))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Soldier: 76)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Soldier: 76)), Hero(Soldier: 76)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Soldier: 76)), Hero(Soldier: 76)), Left, 3 + Index Of Array Value(All Heroes, Hero(Soldier: 76)), Color(
+			White), Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Soldier: 76))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Lúcio))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Lúcio)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Lúcio)), Hero(Lúcio)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Lúcio)), Hero(Lúcio)), Left, 3 + Index Of Array Value(All Heroes, Hero(Lúcio)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Lúcio))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(D.Va))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(D.Va)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(D.Va)), Hero(D.Va)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(D.Va)), Hero(D.Va)), Left, 3 + Index Of Array Value(All Heroes, Hero(D.Va)), Color(White), Color(White),
+			Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(D.Va))]), Visible To String and Color,
+			Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Mei))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Mei)) ? Custom String("{0} {1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Mei)), Hero(Mei)) : Custom String("{1} {2}", Icon String(Arrow: Right), Hero Icon String(Hero(Mei)),
+			Hero(Mei)), Left, 3 + Index Of Array Value(All Heroes, Hero(Mei)), Color(White), Color(White), Custom Color(255, 255, 255,
+			Event Player.Z[Index Of Array Value(All Heroes, Hero(Mei))]), Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Sombra))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Sombra)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Sombra)), Hero(Sombra)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Sombra)), Hero(Sombra)), Left, 3 + Index Of Array Value(All Heroes, Hero(Sombra)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Sombra))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Doomfist))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Doomfist)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Doomfist)), Hero(Doomfist)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Doomfist)), Hero(Doomfist)), Left, 3 + Index Of Array Value(All Heroes, Hero(Doomfist)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Doomfist))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Ana))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Ana)) ? Custom String("{0} {1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Ana)), Hero(Ana)) : Custom String("{1} {2}", Icon String(Arrow: Right), Hero Icon String(Hero(Ana)),
+			Hero(Ana)), Left, 3 + Index Of Array Value(All Heroes, Hero(Ana)), Color(White), Color(White), Custom Color(255, 255, 255,
+			Event Player.Z[Index Of Array Value(All Heroes, Hero(Ana))]), Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Orisa))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Orisa)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Orisa)), Hero(Orisa)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Orisa)), Hero(Orisa)), Left, 3 + Index Of Array Value(All Heroes, Hero(Orisa)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Orisa))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Brigitte))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Brigitte)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Brigitte)), Hero(Brigitte)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Brigitte)), Hero(Brigitte)), Left, 3 + Index Of Array Value(All Heroes, Hero(Brigitte)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Brigitte))]),
+			Visible To String and Color, Default Visibility);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Moira))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Moira)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Moira)), Hero(Moira)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Moira)), Hero(Moira)), Left, 3 + Index Of Array Value(All Heroes, Hero(Moira)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Moira))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Wrecking Ball))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Wrecking Ball)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Wrecking Ball)), Hero(Wrecking Ball)) : Custom String("{1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Wrecking Ball)), Hero(Wrecking Ball)), Left, 3 + Index Of Array Value(All Heroes, Hero(
+			Wrecking Ball)), Color(White), Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(
+			Wrecking Ball))]), Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Ashe))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Ashe)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Ashe)), Hero(Ashe)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Ashe)), Hero(Ashe)), Left, 3 + Index Of Array Value(All Heroes, Hero(Ashe)), Color(White), Color(White),
+			Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Ashe))]), Visible To String and Color,
+			Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Echo))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Echo)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Echo)), Hero(Echo)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Echo)), Hero(Echo)), Left, 3 + Index Of Array Value(All Heroes, Hero(Echo)), Color(White), Color(White),
+			Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Echo))]), Visible To String and Color,
+			Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Baptiste))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Baptiste)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Baptiste)), Hero(Baptiste)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Baptiste)), Hero(Baptiste)), Left, 3 + Index Of Array Value(All Heroes, Hero(Baptiste)), Color(White),
+			Color(White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Baptiste))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+		Create HUD Text(Event Player.HeroTextVisibility[Index Of Array Value(All Heroes, Hero(Sigma))], Null, Null,
+			Event Player.heroIndex == Index Of Array Value(All Heroes, Hero(Sigma)) ? Custom String("{0} {1} {2}", Icon String(
+			Arrow: Right), Hero Icon String(Hero(Sigma)), Hero(Sigma)) : Custom String("{1} {2}", Icon String(Arrow: Right),
+			Hero Icon String(Hero(Sigma)), Hero(Sigma)), Left, 3 + Index Of Array Value(All Heroes, Hero(Sigma)), Color(White), Color(
+			White), Custom Color(255, 255, 255, Event Player.Z[Index Of Array Value(All Heroes, Hero(Sigma))]),
+			Visible To String and Color, Default Visibility);
+		Event Player.heroeMenuText = Append To Array(Event Player.heroeMenuText, Last Text ID);
+	}
+}
+
+rule("Next Hero")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Event Player.isFlying == True;
+		Is Button Held(Event Player, Button(Ultimate)) == True;
+	}
+
+	actions
+	{
+		Event Player.heroIndex += 1;
+	}
+}
+
+rule("Show Hide Menu")
+{
+	event
+	{
+		Ongoing - Each Player;
+		All;
+		All;
+	}
+
+	conditions
+	{
+		Event Player.isFlying == True;
+		Is Button Held(Event Player, Button(Ability 2)) == True;
+	}
+
+	actions
+	{
+		If(Event Player.S);
+			For Player Variable(Event Player, R, Count Of(Event Player.HeroTextVisibility) - -5, -1, -1);
+				Event Player.HeroTextVisibility[Event Player.R] = Null;
+				Event Player.Z[Event Player.R - 4] = 255;
+				Event Player.Z[Event Player.R - 3] = 200;
+				Event Player.Z[Event Player.R - 2] = 150;
+				Event Player.Z[Event Player.R - 1] = 100;
+				Event Player.Z[Event Player.R - 0] = 50;
+				Wait(0.010, Ignore Condition);
+				Event Player.S = False;
+			End;
+		Else If(!Event Player.S);
+			For Player Variable(Event Player, R, -1, Count Of(Event Player.HeroTextVisibility) - -5, 1);
+				Event Player.HeroTextVisibility[Event Player.R] = Event Player;
+				Event Player.Z[Event Player.R - 4] = 255;
+				Event Player.Z[Event Player.R - 3] = 200;
+				Event Player.Z[Event Player.R - 2] = 150;
+				Event Player.Z[Event Player.R - 1] = 100;
+				Event Player.Z[Event Player.R - 0] = 50;
+				Wait(0.010, Ignore Condition);
+				Event Player.S = True;
+			End;
+		End;
+	}
+}
